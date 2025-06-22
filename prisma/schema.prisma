@@ -1,0 +1,74 @@
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Meeting {
+  id                Int               @id @default(autoincrement())
+  title             String
+  description       String?
+  date              DateTime
+  participants      String // Armazenado como JSON
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  has_transcription Boolean           @default(false)
+  has_summary       Boolean           @default(false)
+  has_analysis      Boolean           @default(false)
+  transcriptions    Transcription[]
+  summaries         Summary[]
+  analyses          MeetingAnalysis[]
+}
+
+model Transcription {
+  id            Int      @id @default(autoincrement())
+  meeting_id    Int
+  content       String
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  is_summarized Boolean  @default(false)
+  is_analyzed   Boolean  @default(false)
+  meeting       Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+}
+
+model Summary {
+  id           Int      @id @default(autoincrement())
+  meeting_id   Int
+  content      String
+  topics       String // Armazenado como JSON
+  generated_at DateTime @default(now())
+  meeting      Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+}
+
+model MeetingAnalysis {
+  id                 Int      @id @default(autoincrement())
+  meeting_id         Int
+  participants       String // JSON: ["João Silva", "Maria Santos"]
+  main_topics        String // JSON: ["Projeto X", "Orçamento 2024"]
+  action_items       String // JSON: [{"task": "...", "assignee": "...", "due_date": "..."}]
+  key_decisions      String // JSON: ["Decidiu-se por...", "Foi aprovado..."]
+  summary            String // Resumo geral estruturado
+  sentiment_analysis String? // JSON: {"overall": "positive", "topics": {...}}
+  confidence_score   Float    @default(0.8)
+  generated_at       DateTime @default(now())
+  updated_at         DateTime @updatedAt
+  meeting            Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+}
+
+model ActionItem {
+  id          Int      @id @default(autoincrement())
+  meeting_id  Int
+  analysis_id Int
+  task        String
+  assignee    String?
+  due_date    String?
+  priority    String   @default("média") // alta, média, baixa
+  status      String   @default("pendente") // pendente, em_andamento, concluida
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}

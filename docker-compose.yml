@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:14-alpine
+    container_name: smart-meeting-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: smart_meeting
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - smart-meeting-network
+
+  # Serviço da aplicação
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart-meeting-api
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/smart_meeting
+    ports:
+      - "8000:8000"
+    networks:
+      - smart-meeting-network
+
+networks:
+  smart-meeting-network:
+    driver: bridge
+
+volumes:
+  postgres_data: 

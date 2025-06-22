@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "smart-meeting-api"
+version = "0.1.0"
+description = "API para transcrição e resumo automático de reuniões"
+authors = ["Diogo Faria"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.115.13"
+uvicorn = "^0.34.3"
+pydantic = "^2.11.7"
+python-multipart = "^0.0.20"
+prisma = "^0.15.0"
+# ✅ VERSÕES COMPATÍVEIS - RESOLVIDO CONFLITO TOKENIZERS
+transformers = "~4.37.0"  # Versão específica compatível com faster-whisper
+torch = "^2.0.0"          # Versão mais ampla para compatibilidade
+torchaudio = "^2.0.0"     # Versão mais ampla para compatibilidade
+speechbrain = "^1.0.3"
+python-dotenv = "^1.1.0"
+pydantic-settings = "^2.9.1"
+gtts = "^2.5.4"
+pyttsx3 = "^2.98"
+pydub = "^0.25.1"
+librosa = "^0.10.2"
+# ✅ OTIMIZAÇÕES DE PERFORMANCE WHISPER
+faster-whisper = "^1.0.0"  # Versão mais recente e compatível
+tokenizers = "~0.15.0"     # Versão específica que funciona com ambos
+soundfile = "^0.12.0"
+optimum = "^1.14.0"
+accelerate = "^0.24.0"
+psutil = "^5.9.0"
+joblib = "^1.3.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+black = "^25.1.0"
+isort = "^6.0.1"
+mypy = "^1.16.1"
+
+[tool.poetry.group.optimization.dependencies]
+# ✅ DEPENDÊNCIAS AVANÇADAS DE OTIMIZAÇÃO (opcionais)
+gpustat = "^1.1.0"  # Monitoramento GPU
+memory-profiler = "^0.61.0"  # Profiling de memória
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
