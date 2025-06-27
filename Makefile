@@ -66,5 +66,26 @@ db-setup: docker-up
 	@sleep 5
 	@echo "Banco de dados pronto!"
 
+# Configuração de IA
+setup-ai:
+	@echo "🤖 Configurando modelos de IA..."
+	poetry run python scripts/setup_ai_models.py
+
+test-ai:
+	@echo "🧪 Testando análise de IA..."
+	poetry run python scripts/test_ai_analysis.py
+
+# Performance check
+check-performance:
+	@echo "⚡ Verificando performance do sistema..."
+	@echo "GPU disponível:" && python -c "import torch; print('✅ Sim' if torch.cuda.is_available() else '❌ Não')"
+	@echo "Memória RAM:" && python -c "import psutil; print(f'{psutil.virtual_memory().total / 1024**3:.1f}GB')"
+	@echo "CPU cores:" && python -c "import os; print(os.cpu_count())"
+
 setup: install env-setup db-setup prisma-generate prisma-init
-	@echo "Setup inicial concluído!" 
+	@echo "Setup inicial concluído!"
+	@echo "🚀 Para configurar a IA, execute: make setup-ai"
+
+# Setup completo com IA
+setup-full: setup setup-ai
+	@echo "🎉 Setup completo com IA finalizado!" 

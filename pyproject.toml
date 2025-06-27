@@ -31,6 +31,11 @@ optimum = "^1.14.0"
 accelerate = "^0.24.0"
 psutil = "^5.9.0"
 joblib = "^1.3.0"
+# 🧠 DEPENDÊNCIAS DE IA PARA ANÁLISE INTELIGENTE
+spacy = "^3.7.0"                    # NLP em português
+sentence-transformers = "^2.2.2"   # Embeddings semânticos
+scikit-learn = "^1.3.0"           # Algoritmos ML (TF-IDF, similaridade)
+numpy = "^1.24.0"                  # Operações matemáticas otimizadas
 
 
 [tool.poetry.group.dev.dependencies]

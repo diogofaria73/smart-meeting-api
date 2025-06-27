@@ -45,8 +45,17 @@ except ImportError:
     faster_whisper_service = None
     logger.warning("⚠️ FasterWhisperService não disponível")
 
-# Importa o novo serviço de análise
+# Importa os serviços de análise
 from app.services.meeting_analysis_service import meeting_analysis_service
+# 🧠 Importa o novo serviço de IA
+try:
+    from app.services.meeting_analysis_service import meeting_analysis_service
+    AI_ANALYSIS_AVAILABLE = True
+    logger.info("✅ Serviço de IA disponível")
+except ImportError:
+    AI_ANALYSIS_AVAILABLE = False
+    meeting_analysis_service = None
+    logger.warning("⚠️ Serviço de IA não disponível, usando análise tradicional")
 
 
 class TranscriptionService:
@@ -643,15 +652,22 @@ class TranscriptionService:
             logger.info(f"📄 Transcrição encontrada: {len(transcription.content)} caracteres")
             
             try:
-                # 🚀 NOVA ANÁLISE INTELIGENTE COMPLETA
-                logger.info("🔍 Iniciando análise inteligente da reunião")
-                analysis_result = await meeting_analysis_service.analyze_meeting(
-                    transcription_text=transcription.content,
-                    include_sentiment=True,
-                    extract_participants=True,
-                    extract_action_items=True,
-                    min_confidence=0.6
-                )
+                # 🧠 ANÁLISE INTELIGENTE COM IA OU FALLBACK TRADICIONAL
+                if AI_ANALYSIS_AVAILABLE and meeting_analysis_service:
+                    logger.info("🤖 Iniciando análise com IA otimizada")
+                    analysis_result = await meeting_analysis_service.analyze_meeting(
+                        transcription.content
+                    )
+                    logger.info(f"✅ Análise IA concluída em {analysis_result.processing_time_seconds:.2f}s")
+                else:
+                    logger.info("🔍 Iniciando análise tradicional (fallback)")
+                    analysis_result = await meeting_analysis_service.analyze_meeting(
+                        transcription_text=transcription.content,
+                        include_sentiment=True,
+                        extract_participants=True,
+                        extract_action_items=True,
+                        min_confidence=0.6
+                    )
                 
                 # Usa o resumo da análise inteligente ou gera um tradicional
                 if analysis_result.summary and len(analysis_result.summary) > 50:

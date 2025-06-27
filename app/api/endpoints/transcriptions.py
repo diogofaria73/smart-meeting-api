@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status,
 
 from app.schemas.transcription import TranscriptionResponse
 from app.services.transcription_service import TranscriptionService, transcription_service
+from app.services.meeting_analysis_service import meeting_analysis_service
 import logging
 
 logger = logging.getLogger(__name__)

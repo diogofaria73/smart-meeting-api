@@ -18,8 +18,11 @@ class Settings(BaseSettings):
     # Configurações de segurança
     SECRET_KEY: str = os.environ.get("SECRET_KEY", "secret_key_for_development")
     
-    # Configurações de CORS - como string simples
-    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    # Configurações de CORS - incluindo porta do Vite (5173)
+    ALLOWED_ORIGINS: str = os.environ.get(
+        "ALLOWED_ORIGINS", 
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+    )
     
     # Configurações do banco de dados
     DATABASE_URL: str = os.environ.get(
@@ -38,7 +41,7 @@ class Settings(BaseSettings):
     def cors_origins(self) -> List[str]:
         """Converte ALLOWED_ORIGINS string em lista para uso no CORS"""
         if not self.ALLOWED_ORIGINS:
-            return ["http://localhost:3000"]
+            return ["http://localhost:5173", "http://localhost:3000"]
         
         # Split por vírgula e remove espaços
         origins = [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
