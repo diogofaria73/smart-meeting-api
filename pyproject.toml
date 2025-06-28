@@ -36,6 +36,12 @@ spacy = "^3.7.0"                    # NLP em português
 sentence-transformers = "^2.2.2"   # Embeddings semânticos
 scikit-learn = "^1.3.0"           # Algoritmos ML (TF-IDF, similaridade)
 numpy = "^1.24.0"                  # Operações matemáticas otimizadas
+# 🎙️ SPEAKER DIARIZATION E IDENTIFICAÇÃO
+pyannote-audio = "^3.1.0"         # Speaker diarization state-of-the-art
+pyannote-core = "^5.0.0"          # Core utilities para pyannote
+pyannote-database = "^5.0.1"      # Database utilities
+pyannote-metrics = "^3.2.0"       # Métricas de avaliação
+websockets = "^15.0.1"
 
 
 [tool.poetry.group.dev.dependencies]

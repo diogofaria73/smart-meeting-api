@@ -45,9 +45,17 @@ except ImportError:
     faster_whisper_service = None
     logger.warning("⚠️ FasterWhisperService não disponível")
 
-# Importa os serviços de análise
-from app.services.meeting_analysis_service import meeting_analysis_service
-# 🧠 Importa o novo serviço de IA
+# 🎙️ NOVA FUNCIONALIDADE: Importar serviço aprimorado com diarização
+try:
+    from app.services.enhanced_transcription_service import enhanced_transcription_service
+    ENHANCED_TRANSCRIPTION_AVAILABLE = True
+    logger.info("✅ Enhanced Transcription Service com diarização disponível")
+except ImportError:
+    ENHANCED_TRANSCRIPTION_AVAILABLE = False
+    enhanced_transcription_service = None
+    logger.warning("⚠️ Enhanced Transcription Service não disponível")
+
+# 🧠 Importa o serviço de análise de IA
 try:
     from app.services.meeting_analysis_service import meeting_analysis_service
     AI_ANALYSIS_AVAILABLE = True
@@ -166,6 +174,80 @@ class TranscriptionService:
         
         logger.info(f"⚠️ Hardware limitado: usando Whisper original para {duration_seconds:.1f}s")
         return False
+    
+    def _should_use_enhanced_transcription(self, duration_seconds: float) -> bool:
+        """
+        🎙️ NOVA FUNCIONALIDADE: Decide quando usar transcrição aprimorada com diarização
+        """
+        if not ENHANCED_TRANSCRIPTION_AVAILABLE:
+            return False
+        
+        # Verificar se diarização está forçada
+        from app.core.config import settings
+        if settings.FORCE_DIARIZATION:
+            logger.info(f"🔧 FORCE_DIARIZATION=True: usando transcrição aprimorada para {duration_seconds:.1f}s")
+            return True
+        
+        # Usar transcrição aprimorada quando:
+        # 1. Duração suficiente para ter múltiplos speakers (>30s)
+        # 2. Hardware adequado disponível
+        
+        if duration_seconds < 30:
+            logger.info(f"⏱️ Áudio muito curto ({duration_seconds:.1f}s): usando transcrição simples")
+            return False
+        
+        # Verificar hardware disponível
+        memory_gb = psutil.virtual_memory().total / 1024**3
+        
+        # Critérios mais permissivos para diarização
+        if self._device == "cuda" and self._gpu_memory_gb >= 4.0:
+            logger.info(f"🎙️ GPU CUDA disponível: usando transcrição aprimorada para {duration_seconds:.1f}s")
+            return True
+        elif self._device == "mps":  # Apple Silicon
+            logger.info(f"🍎 Apple Silicon (MPS) detectado: usando transcrição aprimorada para {duration_seconds:.1f}s")
+            return True
+        elif memory_gb >= 6.0:  # Reduzido de 12GB para 6GB
+            logger.info(f"🎙️ CPU com memória adequada ({memory_gb:.1f}GB): usando transcrição aprimorada para {duration_seconds:.1f}s")
+            return True
+        
+        logger.info(f"⚠️ Hardware insuficiente para diarização (RAM: {memory_gb:.1f}GB): usando transcrição simples")
+        logger.info(f"💡 Para forçar diarização, configure FORCE_DIARIZATION=true no .env")
+        return False
+    
+    async def _transcribe_with_enhanced_service(
+        self,
+        audio_data: np.ndarray,
+        sample_rate: int,
+        task_id: Optional[str] = None
+    ) -> dict:
+        """
+        🎙️ NOVA FUNCIONALIDADE: Transcrição aprimorada com identificação de speakers
+        """
+        try:
+            logger.info("🎙️ Usando transcrição aprimorada com diarização...")
+            
+            if task_id:
+                progress_service.update_progress(task_id, "enhanced_transcription_start", 20)
+            
+            # Chama o serviço aprimorado
+            result = await enhanced_transcription_service.transcribe_with_speakers(
+                audio_data=audio_data,
+                sample_rate=sample_rate,
+                task_id=task_id,
+                enable_diarization=True
+            )
+            
+            logger.info(f"✅ Transcrição aprimorada concluída:")
+            logger.info(f"   - Speakers identificados: {result.get('speakers_count', 'N/A')}")
+            logger.info(f"   - Método usado: {result.get('method', 'N/A')}")
+            logger.info(f"   - Tempo total: {result.get('total_processing_time', 0):.2f}s")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Erro na transcrição aprimorada: {e}")
+            logger.info("⚠️ Fazendo fallback para transcrição tradicional...")
+            raise  # Re-raise para que o método principal possa fazer fallback
         
     @property
     def processor(self):
@@ -382,7 +464,7 @@ class TranscriptionService:
                    "Verifique se o arquivo não está corrompido."
         )
 
-    async def transcribe_audio(self, meeting_id: int, file: UploadFile, task_id: Optional[str] = None) -> TranscriptionResponse:
+    async def transcribe_audio(self, meeting_id: int, file: UploadFile, enable_diarization: bool = True, task_id: Optional[str] = None) -> TranscriptionResponse:
         """
         Transcreve um arquivo de áudio e salva no banco de dados.
         """
@@ -497,25 +579,43 @@ class TranscriptionService:
                 if progress_info:
                     progress_info.audio_duration_seconds = duration
             
-            # ✅ OTIMIZAÇÃO: Escolher melhor engine de transcrição
+            # ✅ NOVA OTIMIZAÇÃO: Escolher melhor engine de transcrição com diarização
+            use_enhanced_transcription = ENHANCED_TRANSCRIPTION_AVAILABLE and enable_diarization and self._should_use_enhanced_transcription(duration)
             use_faster_whisper = FASTER_WHISPER_AVAILABLE and self._should_use_faster_whisper(duration)
             
-            if use_faster_whisper:
-                logger.info("🚀 Usando FASTER-WHISPER para máxima velocidade")
-                transcription_text = faster_whisper_service.transcribe_audio_optimized(
-                    audio_data, sample_rate, task_id
-                )
-            else:
-                # Usar Whisper original com otimizações
-                optimal_config = self._get_optimal_config(duration)
-                max_duration = optimal_config["chunk_duration"]
-                
-                if duration > max_duration:
-                    logger.info(f"Áudio longo detectado ({duration:.2f}s), segmentando em chunks de {max_duration}s")
-                    transcription_text = self._transcribe_long_audio_optimized(audio_data, sample_rate, optimal_config, task_id)
+            enhanced_result = None
+            
+            if use_enhanced_transcription:
+                try:
+                    logger.info("🎙️ Usando TRANSCRIÇÃO APRIMORADA com identificação de speakers")
+                    enhanced_result = await self._transcribe_with_enhanced_service(
+                        audio_data, sample_rate, task_id
+                    )
+                    transcription_text = enhanced_result["transcription"]
+                    logger.info(f"✅ Transcrição aprimorada bem-sucedida: {enhanced_result.get('speakers_count', 1)} speakers")
+                except Exception as e:
+                    logger.error(f"❌ Erro na transcrição aprimorada: {e}")
+                    logger.info("⚠️ Fazendo fallback para transcrição tradicional...")
+                    enhanced_result = None
+            
+            # Fallback para engines tradicionais se necessário
+            if enhanced_result is None:
+                if use_faster_whisper:
+                    logger.info("🚀 Usando FASTER-WHISPER para máxima velocidade")
+                    transcription_text = faster_whisper_service.transcribe_audio_optimized(
+                        audio_data, sample_rate, task_id
+                    )
                 else:
-                    logger.info(f"Áudio curto ({duration:.2f}s), transcrição direta otimizada")
-                    transcription_text = self._generate_transcription_optimized(audio_data, sample_rate, optimal_config)
+                    # Usar Whisper original com otimizações
+                    optimal_config = self._get_optimal_config(duration)
+                    max_duration = optimal_config["chunk_duration"]
+                    
+                    if duration > max_duration:
+                        logger.info(f"Áudio longo detectado ({duration:.2f}s), segmentando em chunks de {max_duration}s")
+                        transcription_text = self._transcribe_long_audio_optimized(audio_data, sample_rate, optimal_config, task_id)
+                    else:
+                        logger.info(f"Áudio curto ({duration:.2f}s), transcrição direta otimizada")
+                        transcription_text = self._generate_transcription_optimized(audio_data, sample_rate, optimal_config)
             
             logger.info(f"✅ Transcrição gerada: {len(transcription_text)} caracteres")
             logger.info(f"Prévia da transcrição: {transcription_text[:200]}...")
@@ -555,13 +655,57 @@ class TranscriptionService:
                     raise ValueError(error_msg)
                 
                 logger.info("Reunião encontrada, criando transcrição")
+                
+                # Prepara dados para salvamento
+                transcription_data = {
+                    "meeting_id": meeting_id,
+                    "content": transcription_text,
+                }
+                
+                # 🎙️ NOVA FUNCIONALIDADE: Salva informações de speakers se disponível
+                if enhanced_result:
+                    logger.info(f"💾 Salvando dados aprimorados: {enhanced_result.get('speakers_count', 1)} speakers")
+                    
+                    # 🔧 CORREÇÃO: Converte objetos Pydantic para dicts antes da serialização JSON
+                    import json
+                    
+                    # Converte speaker_segments para dicts se necessário
+                    speaker_segments_for_db = []
+                    for segment in enhanced_result.get('speaker_segments', []):
+                        if hasattr(segment, 'dict'):  # É um objeto Pydantic
+                            speaker_segments_for_db.append(segment.dict())
+                        else:  # Já é um dict
+                            speaker_segments_for_db.append(segment)
+                    
+                    # Converte participants para dicts se necessário  
+                    participants_for_db = []
+                    for participant in enhanced_result.get('participants', []):
+                        if hasattr(participant, 'dict'):  # É um objeto Pydantic
+                            participants_for_db.append(participant.dict())
+                        else:  # Já é um dict
+                            participants_for_db.append(participant)
+                    
+                    # Adiciona campos de diarização ao objeto de salvamento
+                    transcription_data.update({
+                        "speakers_count": enhanced_result.get('speakers_count', 0),
+                        "speaker_segments": json.dumps(speaker_segments_for_db, ensure_ascii=False),
+                        "participants": json.dumps(participants_for_db, ensure_ascii=False),
+                        "diarization_method": enhanced_result.get('method', 'whisper_plus_pyannote'),
+                        "processing_details": json.dumps({
+                            "transcription_time": enhanced_result.get('transcription_time', 0),
+                            "diarization_time": enhanced_result.get('diarization_time', 0),
+                            "total_time": enhanced_result.get('total_processing_time', 0),
+                            "confidence": enhanced_result.get('confidence', 0.8),
+                            "audio_duration": duration
+                        }, ensure_ascii=False)
+                    })
+                    
+                    logger.info(f"   - Método usado: {enhanced_result.get('method', 'N/A')}")
+                    logger.info(f"   - Confiança geral: {enhanced_result.get('confidence', 0):.2f}")
+                    logger.info(f"   - Tempo de processamento: {enhanced_result.get('total_processing_time', 0):.2f}s")
+                
                 # Cria a transcrição
-                transcription = await db.transcription.create(
-                    data={
-                        "meeting_id": meeting_id,
-                        "content": transcription_text,
-                    }
-                )
+                transcription = await db.transcription.create(data=transcription_data)
                 
                 logger.info(f"Transcrição criada com ID: {transcription.id}")
                 
@@ -579,14 +723,57 @@ class TranscriptionService:
                 
                 logger.info("=== TRANSCRIÇÃO CONCLUÍDA COM SUCESSO ===")
                 
-                return TranscriptionResponse(
-                    id=transcription.id,
-                    meeting_id=transcription.meeting_id,
-                    content=transcription.content,
-                    created_at=transcription.created_at,
-                    updated_at=transcription.updated_at,
-                    is_summarized=transcription.is_summarized,
-                )
+                # Prepara resposta com dados de diarização se disponível
+                response_data = {
+                    "id": transcription.id,
+                    "meeting_id": transcription.meeting_id,
+                    "content": transcription.content,
+                    "created_at": transcription.created_at,
+                    "updated_at": transcription.updated_at,
+                    "is_summarized": transcription.is_summarized,
+                    "is_analyzed": getattr(transcription, 'is_analyzed', False),
+                    "summary": None,
+                    "topics": [],
+                    "analysis": None,
+                    "speakers_count": transcription.speakers_count or 0,
+                    "speaker_segments": [],
+                    "participants": [], 
+                    "diarization_method": transcription.diarization_method,
+                    "processing_details": None
+                }
+                
+                # Adiciona dados de diarização se disponível
+                if enhanced_result:
+                    import json
+                    
+                    # 🔧 CORREÇÃO: Converte objetos Pydantic para dicts antes da serialização
+                    speaker_segments_dict = []
+                    for segment in enhanced_result.get('speaker_segments', []):
+                        if hasattr(segment, 'dict'):  # É um objeto Pydantic
+                            speaker_segments_dict.append(segment.dict())
+                        else:  # Já é um dict
+                            speaker_segments_dict.append(segment)
+                    
+                    participants_dict = []
+                    for participant in enhanced_result.get('participants', []):
+                        if hasattr(participant, 'dict'):  # É um objeto Pydantic  
+                            participants_dict.append(participant.dict())
+                        else:  # Já é um dict
+                            participants_dict.append(participant)
+                    
+                    response_data.update({
+                        "speaker_segments": speaker_segments_dict,
+                        "participants": participants_dict,
+                        "processing_details": {
+                            "transcription_time": enhanced_result.get('transcription_time', 0),
+                            "diarization_time": enhanced_result.get('diarization_time', 0),
+                            "total_time": enhanced_result.get('total_processing_time', 0),
+                            "confidence": enhanced_result.get('confidence', 0.8),
+                            "audio_duration": duration
+                        }
+                    })
+                
+                return TranscriptionResponse(**response_data)
         except HTTPException:
             logger.error("Re-raising HTTPException")
             raise
@@ -658,7 +845,7 @@ class TranscriptionService:
                     analysis_result = await meeting_analysis_service.analyze_meeting(
                         transcription.content
                     )
-                    logger.info(f"✅ Análise IA concluída em {analysis_result.processing_time_seconds:.2f}s")
+                    logger.info(f"✅ Análise IA concluída em {analysis_result.processing_time:.2f}s")
                 else:
                     logger.info("🔍 Iniciando análise tradicional (fallback)")
                     analysis_result = await meeting_analysis_service.analyze_meeting(

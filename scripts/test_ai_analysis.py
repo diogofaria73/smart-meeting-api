@@ -64,31 +64,31 @@ async def test_ai_analysis():
         logger.info("📊 Resultados da análise:")
         logger.info(f"   • Participantes encontrados: {len(result.participants)}")
         for p in result.participants:
-            logger.info(f"     - {p.name} (confiança: {p.confidence_score:.2f})")
+            logger.info(f"     - {p.name} (confiança: {p.confidence:.2f})")
         
         logger.info(f"   • Tópicos principais: {len(result.main_topics)}")
         for t in result.main_topics:
-            logger.info(f"     - {t.title} (relevância: {t.relevance_score:.2f})")
+            logger.info(f"     - {t.title} (importância: {t.importance:.2f})")
         
         logger.info(f"   • Itens de ação: {len(result.action_items)}")
         for a in result.action_items:
-            logger.info(f"     - {a.description[:50]}... (confiança: {a.confidence_score:.2f})")
-            if a.responsible_person:
-                logger.info(f"       Responsável: {a.responsible_person}")
-            if a.deadline:
-                logger.info(f"       Prazo: {a.deadline}")
+            logger.info(f"     - {a.task[:50]}... (confiança: {a.confidence:.2f})")
+            if a.assignee:
+                logger.info(f"       Responsável: {a.assignee}")
+            if a.due_date:
+                logger.info(f"       Prazo: {a.due_date}")
         
         logger.info(f"   • Decisões importantes: {len(result.key_decisions)}")
         for d in result.key_decisions:
-            logger.info(f"     - {d.description[:50]}...")
+            logger.info(f"     - {d.decision[:50]}...")
         
         if result.sentiment_analysis:
-            logger.info(f"   • Sentimento geral: {result.sentiment_analysis.overall_sentiment}")
-            logger.info(f"     Confiança: {result.sentiment_analysis.confidence_score:.2f}")
+            logger.info(f"   • Sentimento geral: {result.sentiment_analysis.overall}")
+            logger.info(f"     Confiança: {result.sentiment_analysis.confidence:.2f}")
         
-        logger.info(f"   • Resumo: {result.meeting_summary[:100]}...")
+        logger.info(f"   • Resumo: {result.summary[:100]}...")
         logger.info(f"   • Confiança geral: {result.confidence_score:.2f}")
-        logger.info(f"   • Tempo de processamento: {result.processing_time_seconds:.2f}s")
+        logger.info(f"   • Tempo de processamento: {result.processing_time:.2f}s")
         
         # Teste de performance
         logger.info("⚡ Testando performance...")

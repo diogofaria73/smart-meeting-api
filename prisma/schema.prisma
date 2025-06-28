@@ -33,7 +33,15 @@ model Transcription {
   updated_at    DateTime @updatedAt
   is_summarized Boolean  @default(false)
   is_analyzed   Boolean  @default(false)
-  meeting       Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+
+  // 🎙️ NOVOS CAMPOS: Diarização (Speaker Identification)
+  speakers_count     Int?    @default(0) // Número de speakers identificados
+  speaker_segments   String? // JSON: [{"start_time": 0.0, "end_time": 5.2, "speaker_id": "SPEAKER_00", "text": "...", "confidence": 0.89}]
+  participants       String? // JSON: [{"name": "Participante 1", "speaker_id": "SPEAKER_00", "speaking_time": 45.3, "segments_count": 8, "confidence": 0.85}]
+  diarization_method String? // Método usado: "whisper_plus_pyannote", "whisper_only", etc.
+  processing_details String? // JSON: {"transcription_time": 8.2, "diarization_time": 4.1, "total_time": 12.4}
+
+  meeting Meeting @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
 }
 
 model Summary {

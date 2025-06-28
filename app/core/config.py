@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=[".env", ".env.diarization"],  # Carrega ambos os arquivos
         env_file_encoding="utf-8",
         case_sensitive=True,
     )
@@ -35,6 +35,23 @@ class Settings(BaseSettings):
     
     # Modelo único para transcrição PT-BR
     TRANSCRIPTION_MODEL: str = "openai/whisper-large-v3"
+    
+    # 🎙️ Configurações de Speaker Diarization
+    ENABLE_SPEAKER_DIARIZATION: bool = True
+    FORCE_DIARIZATION: bool = False  # Força diarização independente do hardware
+    MIN_SPEAKERS: int = 1
+    MAX_SPEAKERS: int = 10
+    MIN_SEGMENT_DURATION: float = 1.0
+    
+    # Token do HuggingFace (opcional)
+    HUGGINGFACE_TOKEN: Optional[str] = None
+    
+    # Configurações de hardware para diarização
+    FORCE_DEVICE: Optional[str] = None  # cuda, mps, cpu
+    FORCE_COMPUTE_TYPE: Optional[str] = None  # float16, float32, int8
+    
+    # Modelo de diarização
+    DIARIZATION_MODEL: Optional[str] = "pyannote/speaker-diarization-3.1"
 
     # Property para obter as origens como lista
     @property

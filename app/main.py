@@ -4,7 +4,7 @@ import logging
 
 from app.api.routes import api_router
 from app.core.config import settings
-from app.core.events import register_events
+from app.core.startup import register_startup_events
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -35,7 +35,7 @@ app.add_middleware(
 )
 
 # Registra os eventos de inicialização e encerramento
-register_events(app)
+register_startup_events(app)
 
 # Inclui as rotas da API
 app.include_router(api_router, prefix=settings.API_PREFIX)

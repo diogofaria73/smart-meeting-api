@@ -1,9 +1,11 @@
 import time
 import uuid
+import asyncio
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 from pydantic import BaseModel
+import threading
 
 
 class ProgressStatus(str, Enum):
@@ -64,6 +66,58 @@ class ProgressService:
             ProgressStep.COMPLETED: 100.0,
         }
     
+    def _notify_progress_async(self, progress: ProgressInfo):
+        """Envia notificação WebSocket de forma assíncrona"""
+        try:
+            # Import lazy para evitar circular imports
+            from app.core.events import notify_transcription_progress
+            
+            def run_notification():
+                """Executa a notificação em um novo event loop"""
+                try:
+                    import asyncio
+                    
+                    # Verifica se já existe um event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # Se existe um loop, agenda a tarefa
+                        loop.create_task(notify_transcription_progress(
+                            meeting_id=progress.meeting_id,
+                            task_id=progress.task_id,
+                            progress_data={
+                                "status": progress.status.value,
+                                "step": progress.current_step.value,
+                                "progress_percentage": progress.progress_percentage,
+                                "message": progress.message,
+                                "details": progress.details,
+                                "estimated_remaining_seconds": progress.estimated_remaining_seconds
+                            }
+                        ))
+                    except RuntimeError:
+                        # Não há loop rodando, cria um novo
+                        asyncio.run(notify_transcription_progress(
+                            meeting_id=progress.meeting_id,
+                            task_id=progress.task_id,
+                            progress_data={
+                                "status": progress.status.value,
+                                "step": progress.current_step.value,
+                                "progress_percentage": progress.progress_percentage,
+                                "message": progress.message,
+                                "details": progress.details,
+                                "estimated_remaining_seconds": progress.estimated_remaining_seconds
+                            }
+                        ))
+                except Exception as e:
+                    print(f"❌ Erro interno na notificação WebSocket: {e}")
+            
+            # Executa em uma thread separada para não bloquear
+            thread = threading.Thread(target=run_notification, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            # Não falha o progresso se notificação falhar
+            print(f"❌ Erro ao configurar notificação WebSocket: {e}")
+    
     def create_task(self, meeting_id: int) -> str:
         """Cria uma nova tarefa de progresso"""
         task_id = str(uuid.uuid4())
@@ -81,12 +135,14 @@ class ProgressService:
         )
         
         self._progress_data[task_id] = progress_info
+        # Envia notificação inicial
+        self._notify_progress_async(progress_info)
         return task_id
     
     def update_progress(
         self,
         task_id: str,
-        step: ProgressStep,
+        step: Union[ProgressStep, str],
         message: str,
         details: Optional[str] = None,
         custom_percentage: Optional[float] = None
@@ -96,6 +152,29 @@ class ProgressService:
             return
         
         progress = self._progress_data[task_id]
+        
+        # Converte string para enum se necessário
+        if isinstance(step, str):
+            # Mapeia strings comuns para enums
+            step_mapping = {
+                "upload_validation": ProgressStep.UPLOAD_VALIDATION,
+                "audio_preprocessing": ProgressStep.AUDIO_PREPROCESSING,
+                "audio_processing": ProgressStep.AUDIO_PREPROCESSING,
+                "model_loading": ProgressStep.MODEL_LOADING,
+                "initialization": ProgressStep.MODEL_LOADING,
+                "transcription": ProgressStep.TRANSCRIPTION,
+                "transcription_processing": ProgressStep.TRANSCRIPTION,
+                "speaker_diarization": ProgressStep.TRANSCRIPTION,
+                "enhanced_transcription_start": ProgressStep.TRANSCRIPTION,
+                "post_processing": ProgressStep.POST_PROCESSING,
+                "alignment": ProgressStep.POST_PROCESSING,
+                "database_save": ProgressStep.DATABASE_SAVE,
+                "completed": ProgressStep.COMPLETED,
+                "error": ProgressStep.COMPLETED,  # Erro será tratado pelo status
+                "speaker_diarization_error": ProgressStep.TRANSCRIPTION
+            }
+            step = step_mapping.get(step, ProgressStep.TRANSCRIPTION)
+        
         progress.current_step = step
         progress.message = message
         progress.details = details
@@ -117,6 +196,9 @@ class ProgressService:
             progress.status = ProgressStatus.COMPLETED
         elif progress.status == ProgressStatus.PENDING:
             progress.status = ProgressStatus.PROCESSING
+        
+        # Envia notificação WebSocket
+        self._notify_progress_async(progress)
     
     def update_transcription_chunks(
         self,
@@ -147,6 +229,9 @@ class ProgressService:
         
         progress.message = f"Transcrevendo chunk {chunks_processed}/{chunks_total}"
         progress.updated_at = datetime.now()
+        
+        # Envia notificação WebSocket
+        self._notify_progress_async(progress)
     
     def mark_failed(self, task_id: str, error_message: str) -> None:
         """Marca uma tarefa como falhada"""
@@ -155,8 +240,12 @@ class ProgressService:
         
         progress = self._progress_data[task_id]
         progress.status = ProgressStatus.FAILED
+        progress.current_step = ProgressStep.COMPLETED  # Define step final
         progress.error_message = error_message
         progress.updated_at = datetime.now()
+        
+        # Envia notificação de erro
+        self._notify_progress_async(progress)
     
     def mark_completed(self, task_id: str) -> None:
         """Marca uma tarefa como concluída"""
@@ -170,6 +259,9 @@ class ProgressService:
         progress.message = "Transcrição concluída com sucesso!"
         progress.updated_at = datetime.now()
         progress.estimated_remaining_seconds = 0.0
+        
+        # Envia notificação de conclusão
+        self._notify_progress_async(progress)
     
     def get_progress(self, task_id: str) -> Optional[ProgressInfo]:
         """Obtém informações de progresso de uma tarefa"""
