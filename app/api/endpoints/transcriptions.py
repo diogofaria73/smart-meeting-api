@@ -6,6 +6,7 @@ from app.schemas.transcription import TranscriptionResponse, SpeakerSegment, Par
 from app.services.transcription_service import TranscriptionService, transcription_service
 from app.services.meeting_analysis_service import meeting_analysis_service
 import logging
+import json
 
 # 🎙️ NOVA FUNCIONALIDADE: Importar serviço de diarização para endpoint de teste
 try:
@@ -226,10 +227,101 @@ async def get_active_transcription_tasks():
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
+@router.post("/summary/{meeting_id}/async", response_model=dict)
+async def generate_summary_async(meeting_id: int):
+    """
+    🚀 Gera resumo inteligente ASSÍNCRONO com progresso em tempo real via WebSocket.
+    
+    Funcionalidades otimizadas:
+    - ⚡ Processamento em background (não bloqueia)
+    - 📊 Progresso detalhado via WebSocket  
+    - 🧠 Pipeline de análise avançado
+    - ⚡ Cache inteligente de resultados
+    - 🔄 Chunking otimizado para textos longos
+    - 🎯 Análise semântica aprimorada
+    
+    Retorna task_id para acompanhar progresso via WebSocket /ws/meeting/{meeting_id}
+    """
+    try:
+        logger.info(f"🚀 Iniciando sumarização ASSÍNCRONA otimizada para reunião {meeting_id}")
+        
+        # Valida se existe transcrição
+        from app.db.client import get_db
+        async with get_db() as db:
+            transcription = await db.transcription.find_first(
+                where={"meeting_id": meeting_id}
+            )
+            
+            if not transcription:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Transcrição não encontrada para reunião {meeting_id}"
+                )
+            
+            # Verifica se já foi analisada recentemente
+            existing_analysis = await db.meetinganalysis.find_first(
+                where={"meeting_id": meeting_id},
+                order={"generated_at": "desc"}
+            )
+            
+            if existing_analysis:
+                # Verifica se análise é recente (menos de 1 hora)
+                from datetime import datetime, timedelta
+                if existing_analysis.generated_at > datetime.utcnow() - timedelta(hours=1):
+                    logger.info("✅ Análise recente encontrada, retornando resultado existente")
+                    return {
+                        "message": "Análise já disponível (recente)",
+                        "meeting_id": meeting_id,
+                        "status": "completed",
+                        "analysis_id": existing_analysis.id,
+                        "websocket_url": f"/ws/meeting/{meeting_id}",
+                        "result_url": f"/api/transcriptions/{meeting_id}"
+                    }
+        
+        # Cria task de progresso para análise
+        from app.services.progress_service import progress_service
+        task_id = progress_service.create_task(
+            meeting_id, 
+            initial_step='analysis_queue',
+            initial_message='Análise adicionada à fila de processamento...'
+        )
+        
+        logger.info(f"✅ Task de análise criada: {task_id}")
+        
+        # Inicia processamento em background
+        from app.services.background_tasks import background_task_service
+        background_task_service.start_enhanced_analysis_task(
+            task_id=task_id,
+            meeting_id=meeting_id,
+            transcription_text=transcription.content
+        )
+        
+        logger.info(f"🚀 Análise assíncrona iniciada em background para task {task_id}")
+        
+        return {
+            "message": "Análise inteligente iniciada com sucesso",
+            "task_id": task_id,
+            "meeting_id": meeting_id,
+            "status": "processing",
+            "estimated_duration": "30-60 segundos",
+            "websocket_url": f"/ws/meeting/{meeting_id}",
+            "status_url": f"/api/transcriptions/status/{task_id}",
+            "result_url": f"/api/transcriptions/{meeting_id}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erro ao iniciar análise assíncrona: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+
+
 @router.post("/summary/{meeting_id}", response_model=TranscriptionResponse)
 async def generate_summary(meeting_id: int):
     """
     Gera resumo inteligente da transcrição com análise completa.
+    
+    ⚠️ OTIMIZADO: Agora usa enhanced_summary_service para melhor performance
     
     Extrai automaticamente:
     - 👥 Participantes da reunião
@@ -240,18 +332,144 @@ async def generate_summary(meeting_id: int):
     - 📄 Resumo estruturado em português brasileiro
     """
     try:
-        logger.info(f"📝 Gerando resumo inteligente para reunião {meeting_id}")
+        logger.info(f"📝 Gerando resumo inteligente OTIMIZADO para reunião {meeting_id}")
         
-        result = await transcription_service.generate_summary(meeting_id)
+        # Usa o serviço otimizado
+        from app.services.enhanced_summary_service import enhanced_summary_service
         
-        logger.info(f"✅ Resumo inteligente gerado para reunião {meeting_id}")
-        return result
+        # Busca a transcrição
+        from app.db.client import get_db
+        async with get_db() as db:
+            transcription = await db.transcription.find_first(
+                where={"meeting_id": meeting_id}
+            )
+            
+            if not transcription:
+                error_msg = f"Transcrição para reunião com ID {meeting_id} não encontrada"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
+            # Verifica se já foi analisada
+            if transcription.is_summarized and transcription.is_analyzed:
+                logger.info("Transcrição já possui análise completa, retornando dados existentes")
+                existing_analysis = await transcription_service._get_existing_analysis(meeting_id)
+                existing_summary = await transcription_service._get_existing_summary(meeting_id)
+                existing_topics = await transcription_service._get_existing_topics(meeting_id)
+                
+                return TranscriptionResponse(
+                    id=transcription.id,
+                    meeting_id=transcription.meeting_id,
+                    content=transcription.content,
+                    created_at=transcription.created_at,
+                    updated_at=transcription.updated_at,
+                    is_summarized=transcription.is_summarized,
+                    is_analyzed=transcription.is_analyzed,
+                    summary=existing_summary,
+                    topics=existing_topics,
+                    analysis=existing_analysis
+                )
+        
+        logger.info(f"📄 Transcrição encontrada: {len(transcription.content)} caracteres")
+        
+        # 🚀 USA O SERVIÇO OTIMIZADO
+        logger.info("🤖 Iniciando análise com serviço otimizado")
+        analysis_result = await enhanced_summary_service.analyze_meeting_async(
+            meeting_id=meeting_id,
+            transcription_text=transcription.content,
+            custom_config={
+                'cache_enabled': True,
+                'parallel_processing': True,
+                'min_confidence': 0.6
+            }
+        )
+        logger.info(f"✅ Análise otimizada concluída em {analysis_result.processing_time:.2f}s")
+        
+        # Usa o resumo da análise inteligente
+        summary = analysis_result.summary if analysis_result.summary and len(analysis_result.summary) > 50 else "Resumo não disponível"
+        topics = [topic.title for topic in analysis_result.main_topics] if analysis_result.main_topics else []
+        
+        logger.info(f"📊 RESULTADOS DA ANÁLISE OTIMIZADA:")
+        logger.info(f"   • Resumo: {len(summary)} caracteres")
+        logger.info(f"   • Participantes: {len(analysis_result.participants)}")
+        logger.info(f"   • Tópicos: {len(analysis_result.main_topics)}")
+        logger.info(f"   • Itens de ação: {len(analysis_result.action_items)}")
+        logger.info(f"   • Decisões: {len(analysis_result.key_decisions)}")
+        logger.info(f"   • Confiança: {analysis_result.confidence_score:.2f}")
+        logger.info(f"   • Tempo de processamento: {analysis_result.processing_time:.2f}s")
+        
+        # Salva os resultados no banco
+        async with get_db() as db:
+            # Salva o resumo tradicional
+            await db.summary.create(
+                data={
+                    "meeting_id": meeting_id,
+                    "content": summary,
+                    "topics": json.dumps(topics, ensure_ascii=False),
+                }
+            )
+            
+            # 🆕 Salva a análise inteligente completa
+            analysis_data = {
+                "meeting_id": meeting_id,
+                "participants": json.dumps([p.dict() for p in analysis_result.participants], ensure_ascii=False),
+                "main_topics": json.dumps([t.dict() for t in analysis_result.main_topics], ensure_ascii=False),
+                "action_items": json.dumps([a.dict() for a in analysis_result.action_items], ensure_ascii=False),
+                "key_decisions": json.dumps([d.dict() for d in analysis_result.key_decisions], ensure_ascii=False),
+                "summary": analysis_result.summary,
+                "confidence_score": analysis_result.confidence_score
+            }
+            
+            # Adiciona análise de sentimento se disponível
+            if analysis_result.sentiment_analysis:
+                analysis_data["sentiment_analysis"] = json.dumps(
+                    analysis_result.sentiment_analysis.dict(), ensure_ascii=False
+                )
+            
+            await db.meetinganalysis.create(data=analysis_data)
+            
+            # Atualiza o status da transcrição e da reunião
+            await db.transcription.update(
+                where={"id": transcription.id},
+                data={
+                    "is_summarized": True,
+                    "is_analyzed": True
+                }
+            )
+            
+            await db.meeting.update(
+                where={"id": meeting_id},
+                data={
+                    "has_summary": True,
+                    "has_analysis": True
+                }
+            )
+        
+        logger.info("✅ Resumo e análise otimizada salvos com sucesso")
+        
+        # Retorna a transcrição atualizada com análise completa
+        async with get_db() as db:
+            updated_transcription = await db.transcription.find_unique(
+                where={"id": transcription.id}
+            )
+        
+        return TranscriptionResponse(
+            id=updated_transcription.id,
+            meeting_id=updated_transcription.meeting_id,
+            content=updated_transcription.content,
+            created_at=updated_transcription.created_at,
+            updated_at=updated_transcription.updated_at,
+            is_summarized=updated_transcription.is_summarized,
+            is_analyzed=updated_transcription.is_analyzed,
+            summary=summary,
+            topics=topics,
+            analysis=analysis_result
+        )
         
     except ValueError as e:
         logger.error(f"❌ Erro de validação: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.error(f"❌ Erro ao gerar resumo: {str(e)}")
+        logger.error(f"❌ Erro ao gerar resumo otimizado: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 

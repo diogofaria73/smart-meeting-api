@@ -199,10 +199,8 @@ class BackgroundTaskService:
         enable_diarization: bool = True
     ) -> asyncio.Task:
         """Inicia uma tarefa de transcrição em background"""
+        logger.info(f"🚀 Iniciando tarefa de transcrição em background: {task_id}")
         
-        logger.info(f"🚀 Criando tarefa de transcrição em background: {task_id}")
-        
-        # Cria e inicia a tarefa
         task = asyncio.create_task(
             self.process_transcription_async(
                 task_id=task_id,
@@ -217,7 +215,204 @@ class BackgroundTaskService:
         # Adiciona à lista de tarefas ativas
         self.running_tasks[task_id] = task
         
+        logger.info(f"✅ Tarefa de transcrição {task_id} adicionada à lista de execução")
         return task
+
+    def start_enhanced_analysis_task(
+        self,
+        task_id: str,
+        meeting_id: int,
+        transcription_text: str,
+        custom_config: Optional[Dict] = None
+    ) -> asyncio.Task:
+        """
+        🚀 Inicia uma tarefa de análise OTIMIZADA em background
+        
+        Usa o enhanced_summary_service para melhor performance e qualidade
+        """
+        logger.info(f"🧠 Iniciando tarefa de análise otimizada em background: {task_id}")
+        
+        task = asyncio.create_task(
+            self._process_enhanced_analysis_async(
+                task_id=task_id,
+                meeting_id=meeting_id,
+                transcription_text=transcription_text,
+                custom_config=custom_config or {}
+            )
+        )
+        
+        # Adiciona à lista de tarefas ativas
+        self.running_tasks[task_id] = task
+        
+        logger.info(f"✅ Tarefa de análise otimizada {task_id} adicionada à lista de execução")
+        return task
+
+    async def _process_enhanced_analysis_async(
+        self,
+        task_id: str,
+        meeting_id: int,
+        transcription_text: str,
+        custom_config: Dict
+    ) -> None:
+        """
+        🧠 Processa análise OTIMIZADA de forma assíncrona com progresso detalhado
+        """
+        try:
+            logger.info(f"🔍 Iniciando processamento de análise otimizada")
+            logger.info(f"   Task ID: {task_id}")
+            logger.info(f"   Meeting ID: {meeting_id}")
+            logger.info(f"   Texto: {len(transcription_text)} caracteres")
+            
+            # Notifica início da análise
+            progress_service.update_progress(
+                task_id, 
+                'enhanced_analysis_start', 
+                'Iniciando análise inteligente otimizada...', 
+                5
+            )
+            
+            # Configura serviço otimizado
+            from app.services.enhanced_summary_service import enhanced_summary_service
+            
+            # Configuração otimizada para background
+            config = {
+                'cache_enabled': True,
+                'parallel_processing': True,
+                'min_confidence': 0.6,
+                'max_chunk_size': 1200,  # Chunks maiores para background
+                'chunk_overlap': 150,
+                **custom_config
+            }
+            
+            # Executa análise otimizada
+            logger.info(f"🤖 Executando análise com enhanced_summary_service...")
+            
+            analysis_result = await enhanced_summary_service.analyze_meeting_async(
+                meeting_id=meeting_id,
+                transcription_text=transcription_text,
+                task_id=task_id,
+                custom_config=config
+            )
+            
+            logger.info(f"✅ Análise otimizada concluída em {analysis_result.processing_time:.2f}s!")
+            logger.info(f"   • Participantes: {len(analysis_result.participants)}")
+            logger.info(f"   • Tópicos: {len(analysis_result.main_topics)}")
+            logger.info(f"   • Ações: {len(analysis_result.action_items)}")
+            logger.info(f"   • Decisões: {len(analysis_result.key_decisions)}")
+            logger.info(f"   • Confiança: {analysis_result.confidence_score:.2f}")
+            
+            # Salva resultados no banco de dados
+            await self._save_enhanced_analysis_results(meeting_id, analysis_result)
+            
+            # Atualiza progresso final
+            progress_service.update_progress(
+                task_id, 
+                'enhanced_analysis_save', 
+                'Salvando resultados da análise...', 
+                95
+            )
+            
+            # Notifica conclusão da análise otimizada
+            analysis_summary = {
+                "meeting_id": meeting_id,
+                "participants_count": len(analysis_result.participants),
+                "topics_count": len(analysis_result.main_topics),
+                "actions_count": len(analysis_result.action_items),
+                "decisions_count": len(analysis_result.key_decisions),
+                "confidence_score": analysis_result.confidence_score,
+                "processing_time": analysis_result.processing_time,
+                "summary_length": len(analysis_result.summary or ""),
+                "has_sentiment": analysis_result.sentiment_analysis is not None
+            }
+            
+            await notify_analysis_completed(meeting_id, analysis_summary)
+            
+            # Marca como concluída
+            progress_service.mark_completed(task_id)
+            
+            logger.info(f"🎯 Análise otimizada completa para reunião {meeting_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro na análise otimizada assíncrona: {e}")
+            
+            # Marca como falhado
+            progress_service.mark_failed(task_id, f"Erro na análise: {str(e)}")
+            
+            # Notifica falha
+            await notify_transcription_failed(meeting_id, task_id, f"Falha na análise: {str(e)}")
+            
+        finally:
+            # Remove da lista de tarefas ativas
+            if task_id in self.running_tasks:
+                del self.running_tasks[task_id]
+
+    async def _save_enhanced_analysis_results(
+        self, 
+        meeting_id: int, 
+        analysis_result
+    ) -> None:
+        """
+        💾 Salva resultados da análise otimizada no banco de dados
+        """
+        try:
+            from app.db.client import get_db
+            import json
+            
+            async with get_db() as db:
+                # Gera resumo tradicional se não houver
+                summary = analysis_result.summary if analysis_result.summary and len(analysis_result.summary) > 50 else "Resumo gerado automaticamente"
+                topics = [topic.title for topic in analysis_result.main_topics] if analysis_result.main_topics else []
+                
+                # Salva o resumo tradicional
+                await db.summary.create(
+                    data={
+                        "meeting_id": meeting_id,
+                        "content": summary,
+                        "topics": json.dumps(topics, ensure_ascii=False),
+                    }
+                )
+                
+                # Salva a análise inteligente completa
+                analysis_data = {
+                    "meeting_id": meeting_id,
+                    "participants": json.dumps([p.dict() for p in analysis_result.participants], ensure_ascii=False),
+                    "main_topics": json.dumps([t.dict() for t in analysis_result.main_topics], ensure_ascii=False),
+                    "action_items": json.dumps([a.dict() for a in analysis_result.action_items], ensure_ascii=False),
+                    "key_decisions": json.dumps([d.dict() for d in analysis_result.key_decisions], ensure_ascii=False),
+                    "summary": analysis_result.summary,
+                    "confidence_score": analysis_result.confidence_score
+                }
+                
+                # Adiciona análise de sentimento se disponível
+                if analysis_result.sentiment_analysis:
+                    analysis_data["sentiment_analysis"] = json.dumps(
+                        analysis_result.sentiment_analysis.dict(), ensure_ascii=False
+                    )
+                
+                await db.meetinganalysis.create(data=analysis_data)
+                
+                # Atualiza status da transcrição e reunião
+                await db.transcription.update_many(
+                    where={"meeting_id": meeting_id},
+                    data={
+                        "is_summarized": True,
+                        "is_analyzed": True
+                    }
+                )
+                
+                await db.meeting.update(
+                    where={"id": meeting_id},
+                    data={
+                        "has_summary": True,
+                        "has_analysis": True
+                    }
+                )
+                
+            logger.info("✅ Resultados da análise otimizada salvos com sucesso")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao salvar resultados da análise: {e}")
+            raise
     
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Retorna status de uma tarefa"""
