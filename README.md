@@ -20,9 +20,34 @@ API para transcrição e resumo automático de reuniões utilizando transformers
 
 ## Instalação
 
-### Setup Automático
+> 📋 **Para novos usuários:** Consulte o [**Guia Rápido de Setup**](./SETUP.md) para instruções detalhadas!
 
-O projeto inclui um comando para configuração automática:
+### 🚀 Setup Automático (Recomendado)
+
+Para configurar **tudo** automaticamente em uma única etapa (ideal para primeira execução):
+
+```bash
+make setup-first-time
+```
+
+Este comando irá verificar e configurar **toda a aplicação**:
+- ✅ Verificar requisitos do sistema (Docker, Poetry, Python)
+- ✅ Criar arquivos de configuração (.env e .env.diarization)
+- ✅ Iniciar infraestrutura PostgreSQL com Docker
+- ✅ Instalar todas as dependências Python
+- ✅ Configurar e inicializar banco de dados
+- ✅ Baixar e configurar modelos de IA
+- ✅ Instalar dependências de diarização de speakers
+
+Após o setup completo, você pode iniciar a aplicação com:
+
+```bash
+make run
+```
+
+### Setup Parcial (Compatibilidade)
+
+Se preferir fazer o setup em etapas menores:
 
 ```bash
 make setup
@@ -187,18 +212,33 @@ smart-meeting-api/
 
 ## Comandos Make
 
-- `make install`: Instala as dependências
+### Setup Inicial
+- `make setup-first-time`: **Setup completo para primeira execução** (recomendado)
+- `make setup`: Setup básico (compatibilidade)
+- `make help`: Mostra todos os comandos disponíveis
+
+### Desenvolvimento
 - `make run`: Executa a aplicação localmente
 - `make test`: Executa os testes
 - `make format`: Formata o código
 - `make lint`: Executa o linter
-- `make docker-up`: Inicia o contêiner do banco de dados
+
+### Docker
+- `make docker-up`: Inicia o PostgreSQL
 - `make docker-down`: Para todos os contêineres
 - `make docker-build`: Constrói a imagem Docker da aplicação
 - `make docker-run`: Executa a aplicação em Docker
 - `make docker-all`: Executa todos os serviços em Docker
+
+### Banco de Dados
+- `make prisma-studio`: Interface gráfica do banco de dados
+- `make prisma-migrate`: Cria nova migration
 - `make prisma-init`: Inicializa o banco de dados
-- `make prisma-generate`: Gera o cliente Prisma
-- `make prisma-migrate`: Executa migrações do banco de dados
-- `make prisma-studio`: Abre o Prisma Studio para visualizar/editar o banco de dados
-- `make setup`: Executa o setup inicial completo 
+
+### Inteligência Artificial
+- `make setup-ai`: Configura modelos de IA
+- `make test-ai`: Testa análise de IA
+- `make check-performance`: Verifica performance do sistema
+
+### Outros
+- `make install`: Instala apenas as dependências Python 
